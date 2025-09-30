@@ -317,7 +317,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             .listen((Position position) {
           final currentPos = LatLng(position.latitude, position.longitude);
 
-          print("📍 New location: ${currentPos.latitude}, ${currentPos.longitude}");
+         // print("📍 New location: ${currentPos.latitude}, ${currentPos.longitude}");
 
           _userLocation = currentPos;
           _drivers["driver_1"] = currentPos;
@@ -328,7 +328,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           // ✅ 1. Check if deviated from polyline
           final nearestDistance = _getNearestPolylineDistance(currentPos);
           if (nearestDistance > 50) {
-            print("⚠️ Off-route detected! Recalculating route...");
+         //   print("⚠️ Off-route detected! Recalculating route...");
             _drawRoute(currentPos, widget.destinationLocation!);
             return;
           }
@@ -340,8 +340,8 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
                 _calculateDistance(currentPos, stepEnd) * 1000; // meters
 
             if (distanceToStepEnd < 30) {
-              print(
-                  "✅ Reached step ${_currentStepIndex + 1}: ${_navigationSteps[_currentStepIndex].instruction}");
+              // print(
+              //     "✅ Reached step ${_currentStepIndex + 1}: ${_navigationSteps[_currentStepIndex].instruction}");
               setState(() {
                 _currentStepIndex++;
               });
