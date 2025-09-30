@@ -40,7 +40,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   StreamSubscription<Position>? _posSub;
 
-  bool _isSelectingDestination = false;
+
 
   List<LatLng> _routePoints = [];
   double? _estimatedDistance;
@@ -297,9 +297,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     );
   }
 
-  void _startDestinationSelection() {
-    setState(() => _isSelectingDestination = true);
-  }
+
 
   StreamSubscription<Position>? _positionStream;
 
@@ -389,18 +387,18 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             onMapCreated: (controller) => _ctrl.complete(controller),
            // onTap: _handleMapTap,
           ),
-          Positioned(
-            top: 40,
-            left: 16,
-            right: 16,
-            child: Card(
-              child: ListTile(
-                leading: const Icon(Icons.search),
-                title: const Text("Tap to select destination"),
-                onTap: _startDestinationSelection,
-              ),
-            ),
-          ),
+          // Positioned(
+          //   top: 40,
+          //   left: 16,
+          //   right: 16,
+          //   child: Card(
+          //     child: ListTile(
+          //       leading: const Icon(Icons.search),
+          //       title: const Text("Tap to select destination"),
+          //       onTap: _startDestinationSelection,
+          //     ),
+          //   ),
+          // ),
           if (_routePoints.isNotEmpty)
             Positioned(
               bottom: 30,
