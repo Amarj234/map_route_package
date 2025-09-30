@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -264,38 +263,38 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   double _toRadians(double degree) => degree * pi / 180;
 
-
-  void _showLocationOptions(LatLng position) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ListTile(
-          //   leading: const Icon(Icons.location_on, color: Colors.green),
-          //   title: const Text('Set as Pickup Location'),
-          //   onTap: () {
-          //     Navigator.pop(ctx);
-          //     setState(() => pickupLocation = position);
-          //     _initMarkers();
-          //   },
-          // ),
-          // ListTile(
-          //   leading: const Icon(Icons.flag, color: Colors.red),
-          //   title: const Text('Set as Destination'),
-          //   onTap: () {
-          //     Navigator.pop(ctx);
-          //     setState(() => widget.destinationLocation = position);
-          //     _initMarkers();
-          //     if (pickupLocation != null) {
-          //       _drawRoute(pickupLocation!, widget.destinationLocation!);
-          //     }
-          //   },
-          // ),
-        ],
-      ),
-    );
-  }
+  //
+  // void _showLocationOptions(LatLng position) {
+  //   showModalBottomSheet(
+  //     context: context,
+  //     builder: (ctx) => Column(
+  //       mainAxisSize: MainAxisSize.min,
+  //       children: [
+  //         // ListTile(
+  //         //   leading: const Icon(Icons.location_on, color: Colors.green),
+  //         //   title: const Text('Set as Pickup Location'),
+  //         //   onTap: () {
+  //         //     Navigator.pop(ctx);
+  //         //     setState(() => pickupLocation = position);
+  //         //     _initMarkers();
+  //         //   },
+  //         // ),
+  //         // ListTile(
+  //         //   leading: const Icon(Icons.flag, color: Colors.red),
+  //         //   title: const Text('Set as Destination'),
+  //         //   onTap: () {
+  //         //     Navigator.pop(ctx);
+  //         //     setState(() => widget.destinationLocation = position);
+  //         //     _initMarkers();
+  //         //     if (pickupLocation != null) {
+  //         //       _drawRoute(pickupLocation!, widget.destinationLocation!);
+  //         //     }
+  //         //   },
+  //         // ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
 
 
