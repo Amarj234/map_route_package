@@ -10,13 +10,13 @@ export 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 import 'package:http/http.dart' as http;
 
 class MapScreenRoute extends StatefulWidget {
-
+final LatLng? pickupLocations;
  final LatLng? destinationLocation;
   final String bikeIcon;
   final String dropIcon;
   final String pickupIcon;
   final String apiKey;
-  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey});
+  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations});
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
@@ -57,6 +57,8 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   @override
   void initState() {
+    if(widget.pickupLocations!=null){
+    pickupLocation=widget.pickupLocations;}
     super.initState();
     _loadCustomIcons().then((_) => _initMarkers());
     _listenLocation();
