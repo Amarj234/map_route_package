@@ -60,7 +60,12 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   void initState() {
     if(widget.pickupLocations!=null){
       pickupLocation=widget.pickupLocations;}
-    Future.delayed(Duration(seconds: 3),(){
+    Future.delayed(Duration(seconds: 4),()async{
+      if(pickupLocation==null){
+        final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.best);
+        pickupLocation =LatLng(pos.latitude, pos.longitude);
+      }
 
       _drawRoute(pickupLocation!, widget.destinationLocation!);
 
@@ -168,6 +173,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   }
 
   Future<void> _drawRoute(LatLng origin, LatLng destination) async {
+
     String googleApiKey = widget.apiKey ;// replace
     final url =
         "https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&key=$googleApiKey";
@@ -412,19 +418,19 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           //     ),
           //   ),
           // ),
-           if (widget.isShowRideButton)
-          Positioned(
-            bottom: 30,
-            left: 20,
-            right: 20,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+          if (widget.isShowRideButton)
+            Positioned(
+              bottom: 30,
+              left: 20,
+              right: 20,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                onPressed: _startRide,
+                child: const Text("Start Ride", style: TextStyle(fontSize: 18)),
               ),
-              onPressed: _startRide,
-              child: const Text("Start Ride", style: TextStyle(fontSize: 18)),
             ),
-          ),
           if (_estimatedDistance != null && _estimatedTime != null)
             Positioned(
               bottom: 90,
