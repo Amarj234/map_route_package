@@ -16,6 +16,17 @@ A Flutter package that provides **real-time navigation with Google Maps**, inclu
 
 ---
 
+## 🎥 Demo Video
+
+Watch the demo video below:
+
+<video width="100%" controls>
+  <source src="https://github.com/Amarj234/map_route_package/blob/main/Screen_recording_20250925_145039%20(1).mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+
+
 ## 📦 Installation
 
 Add dependency in your `pubspec.yaml`:
