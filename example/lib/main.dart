@@ -23,7 +23,7 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: MapScreenRoute(bikeIcon: "assets/bike_icon.png", dropIcon: "assets/destination_icon.png", pickupIcon: "assets/pickup_icon.png", destinationLocation: LatLng(32.3, 71.5),  apiKey: '',),
+      home: MapScreenRoute(bikeIcon: "assets/bike_icon.png", dropIcon: "assets/destination_icon.png", pickupIcon: "assets/pickup_icon.png", destinationLocation: LatLng(32.3, 71.5),  apiKey: '', onReach: () {  },),
     );
   }
 }

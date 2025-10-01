@@ -17,7 +17,8 @@ class MapScreenRoute extends StatefulWidget {
   final String pickupIcon;
   final bool isShowRideButton;
   final String apiKey;
-  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true});
+  final Function() onReach;
+  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach});
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
@@ -83,9 +84,9 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   }
 
   Future<void> _loadCustomIcons() async {
-    _bikeIcon = await _loadCustomMarker('assets/AppAsset/bike_icon.png', width: 120);
-    _pickupIcon = await _loadCustomMarker('assets/AppAsset/pickup_icon.png', width: 40);
-    _destinationIcon = await _loadCustomMarker('assets/AppAsset/destination_icon.png', width: 40);
+    _bikeIcon = await _loadCustomMarker(widget.bikeIcon, width: 120);
+    _pickupIcon = await _loadCustomMarker(widget.pickupIcon, width: 40);
+    _destinationIcon = await _loadCustomMarker(widget.dropIcon, width: 40);
   }
 
   Future<BitmapDescriptor> _loadCustomMarker(String assetPath, {int width = 120}) async {
@@ -370,6 +371,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           final distanceToDestination =
               _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
           if (distanceToDestination < 20) {
+            widget.onReach();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text("🎯 Ride Finished")),
             );
