@@ -24,7 +24,7 @@ Add dependency in your `pubspec.yaml`:
 dependencies:
   flutter:
     sdk: flutter
-  maps_route: 
+  distance_route: 
 
 
 ```

@@ -10,8 +10,8 @@ export 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 import 'package:http/http.dart' as http;
 
 class MapScreenRoute extends StatefulWidget {
-final LatLng? pickupLocations;
- final LatLng? destinationLocation;
+  final LatLng? pickupLocations;
+  final LatLng? destinationLocation;
   final String bikeIcon;
   final String dropIcon;
   final String pickupIcon;
@@ -58,7 +58,12 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   @override
   void initState() {
     if(widget.pickupLocations!=null){
-    pickupLocation=widget.pickupLocations;}
+      pickupLocation=widget.pickupLocations;}
+    Future.delayed(Duration(seconds: 3),(){
+
+      _drawRoute(pickupLocation!, widget.destinationLocation!);
+
+    });
     super.initState();
     _loadCustomIcons().then((_) => _initMarkers());
     _listenLocation();
@@ -302,11 +307,21 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   StreamSubscription<Position>? _positionStream;
 
-  void _startRide() {
+  void _startRide() async {
     if (_routePoints.isEmpty || widget.destinationLocation == null) return;
 
     _positionStream?.cancel(); // Cancel previous if exists
     _currentStepIndex = 0;
+
+    // ✅ Get last known location immediately
+    Position? lastPosition = await Geolocator.getLastKnownPosition();
+    if (lastPosition != null) {
+      final currentPos = LatLng(lastPosition.latitude, lastPosition.longitude);
+      _userLocation = currentPos;
+      _drivers["driver_1"] = currentPos;
+      _initMarkers();
+      _moveCamera(currentPos);
+    }
 
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
@@ -318,38 +333,33 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             .listen((Position position) {
           final currentPos = LatLng(position.latitude, position.longitude);
 
-         // print("📍 New location: ${currentPos.latitude}, ${currentPos.longitude}");
-
           _userLocation = currentPos;
           _drivers["driver_1"] = currentPos;
 
           _initMarkers();
           _moveCamera(currentPos);
 
-          // ✅ 1. Check if deviated from polyline
+          // Check if deviated from polyline
           final nearestDistance = _getNearestPolylineDistance(currentPos);
           if (nearestDistance > 50) {
-         //   print("⚠️ Off-route detected! Recalculating route...");
             _drawRoute(currentPos, widget.destinationLocation!);
             return;
           }
 
-          // ✅ 2. Check if reached current navigation step
+          // Check if reached current navigation step
           if (_currentStepIndex < _navigationSteps.length) {
             final stepEnd = _navigationSteps[_currentStepIndex].endLocation;
             final distanceToStepEnd =
-                _calculateDistance(currentPos, stepEnd) * 1000; // meters
+                _calculateDistance(currentPos, stepEnd) * 1000;
 
             if (distanceToStepEnd < 30) {
-              // print(
-              //     "✅ Reached step ${_currentStepIndex + 1}: ${_navigationSteps[_currentStepIndex].instruction}");
               setState(() {
                 _currentStepIndex++;
               });
             }
           }
 
-          // ✅ 3. Check if reached destination
+          // Check if reached destination
           final distanceToDestination =
               _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
           if (distanceToDestination < 20) {
@@ -360,6 +370,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           }
         });
   }
+
   double _getNearestPolylineDistance(LatLng currentPos) {
     double minDistance = double.infinity;
 
@@ -386,7 +397,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             markers: _markers,
             polylines: _polylines,
             onMapCreated: (controller) => _ctrl.complete(controller),
-           // onTap: _handleMapTap,
+            // onTap: _handleMapTap,
           ),
           // Positioned(
           //   top: 40,
@@ -400,19 +411,19 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           //     ),
           //   ),
           // ),
-          if (_routePoints.isNotEmpty)
-            Positioned(
-              bottom: 30,
-              left: 20,
-              right: 20,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                onPressed: _startRide,
-                child: const Text("Start Ride", style: TextStyle(fontSize: 18)),
+          // if (_routePoints.isNotEmpty)
+          Positioned(
+            bottom: 30,
+            left: 20,
+            right: 20,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
               ),
+              onPressed: _startRide,
+              child: const Text("Start Ride", style: TextStyle(fontSize: 18)),
             ),
+          ),
           if (_estimatedDistance != null && _estimatedTime != null)
             Positioned(
               bottom: 90,
