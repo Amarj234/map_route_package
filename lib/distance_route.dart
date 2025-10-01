@@ -15,8 +15,9 @@ class MapScreenRoute extends StatefulWidget {
   final String bikeIcon;
   final String dropIcon;
   final String pickupIcon;
+  final bool isShowRideButton;
   final String apiKey;
-  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations});
+  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true});
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
@@ -411,7 +412,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           //     ),
           //   ),
           // ),
-          // if (_routePoints.isNotEmpty)
+           if (widget.isShowRideButton)
           Positioned(
             bottom: 30,
             left: 20,
