@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 export 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:http/http.dart' as http;
+import 'package:keep_screen_on/keep_screen_on.dart';
 
 class MapScreenRoute extends StatefulWidget {
   final LatLng? pickupLocations;
@@ -41,6 +42,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   StreamSubscription<Position>? _posSub;
 
+  String startRide="Start Ride";
 
 
   List<LatLng> _routePoints = [];
@@ -64,7 +66,9 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     Future.delayed(Duration(seconds: 4),()async{
       if(pickupLocation==null){
         final pos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.best);
+            timeLimit: Duration(seconds: 1), // ensure frequent updates
+            // half-second updates
+            desiredAccuracy: LocationAccuracy.bestForNavigation);
         pickupLocation =LatLng(pos.latitude, pos.longitude);
       }
 
@@ -74,12 +78,16 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     super.initState();
     _loadCustomIcons().then((_) => _initMarkers());
     _listenLocation();
+    // Keep the screen on.
+    KeepScreenOn.turnOn();
   }
 
   @override
   void dispose() {
     _posSub?.cancel();
     _rideTimer?.cancel();
+    _positionStream?.cancel();
+    KeepScreenOn.turnOff();
     super.dispose();
   }
 
@@ -154,24 +162,61 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     }
     if (permission == LocationPermission.deniedForever) return;
 
-    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.best);
+    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.bestForNavigation,
+      timeLimit: Duration(seconds: 1), // ensure frequent updates
+      // half-second updates
+    );
     _userLocation = LatLng(pos.latitude, pos.longitude);
     pickupLocation ??= _userLocation;
+
     _moveCamera(_userLocation!, zoom: 15);
     _initMarkers();
 
     _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(distanceFilter: 10),
+      locationSettings: const LocationSettings(distanceFilter: 0),
     ).listen((p) {
       _userLocation = LatLng(p.latitude, p.longitude);
+
       _initMarkers();
     });
   }
+  double _calculateBearing(LatLng from, LatLng to) {
+    double lat1 = _toRadians(from.latitude);
+    double lon1 = _toRadians(from.longitude);
+    double lat2 = _toRadians(to.latitude);
+    double lon2 = _toRadians(to.longitude);
 
-  Future<void> _moveCamera(LatLng target, {double zoom = 18}) async {
-    final controller = await _ctrl.future;
-    controller.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(target: target, zoom: zoom)));
+    double dLon = lon2 - lon1;
+    double y = sin(dLon) * cos(lat2);
+    double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+    double bearing = atan2(y, x);
+    return (bearing * 180 / pi + 360) % 360; // convert to degrees
   }
+
+
+
+  Future<void> _moveCamera(LatLng target, {double zoom = 18, double bearing = 0}) async {
+    final controller = await _ctrl.future;
+
+    // Offset camera slightly ahead in direction of bearing
+    final offsetDistance = 0.0003; // ≈ 30m
+    final offsetLat = target.latitude + offsetDistance * cos(bearing * pi / 180);
+    final offsetLng = target.longitude + offsetDistance * sin(bearing * pi / 180);
+
+    controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(offsetLat, offsetLng),
+          zoom: zoom,
+          bearing: bearing,
+          tilt: 60,
+        ),
+      ),
+    );
+  }
+
+
+
 
   Future<void> _drawRoute(LatLng origin, LatLng destination) async {
 
@@ -314,51 +359,77 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
 
   StreamSubscription<Position>? _positionStream;
+  double? _lastBearing;
 
   void _startRide() async {
     if (_routePoints.isEmpty || widget.destinationLocation == null) return;
 
-    _positionStream?.cancel(); // Cancel previous if exists
+    _positionStream?.cancel(); // Cancel previous listener if any
     _currentStepIndex = 0;
+    _lastBearing = null; // reset bearing memory
 
-    // ✅ Get last known location immediately
+    // 🟢 Get the last known location immediately
     Position? lastPosition = await Geolocator.getLastKnownPosition();
     if (lastPosition != null) {
       final currentPos = LatLng(lastPosition.latitude, lastPosition.longitude);
       _userLocation = currentPos;
       _drivers["driver_1"] = currentPos;
       _initMarkers();
-      _moveCamera(currentPos);
+
+      // Move camera initially toward route start
+      double bearing = _routePoints.isNotEmpty
+          ? _calculateBearing(currentPos, _routePoints.first)
+          : 0;
+      _moveCamera(currentPos, bearing: bearing);
     }
 
+    startRide = "Re Route";
+
     const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
     );
 
+    // 🚀 Start live location updates
     _positionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings)
-            .listen((Position position) {
+            .listen((Position position) async {
           final currentPos = LatLng(position.latitude, position.longitude);
-
           _userLocation = currentPos;
           _drivers["driver_1"] = currentPos;
-
           _initMarkers();
-          _moveCamera(currentPos);
 
-          // Check if deviated from polyline
+          // 🧭 Calculate bearing
+          double bearing = position.heading;
+
+          // Fallback if heading is unreliable (0)
+          if (bearing == 0.0 && _routePoints.isNotEmpty) {
+            bearing = _calculateBearing(currentPos, _routePoints.last);
+          }
+
+          // Smooth transition to prevent sudden rotation jumps
+          if (_lastBearing != null) {
+            bearing = _smoothBearing(_lastBearing!, bearing);
+          }
+          _lastBearing = bearing;
+
+          // 🎥 Move camera with tilt and bearing
+          _moveCamera(currentPos, bearing: bearing);
+
+          // 🚧 Check if driver goes off route (> 50m)
           final nearestDistance = _getNearestPolylineDistance(currentPos);
           if (nearestDistance > 50) {
             _drawRoute(currentPos, widget.destinationLocation!);
             return;
           }
 
-          // Check if reached current navigation step
+          // 📍 Step-by-step navigation updates
           if (_currentStepIndex < _navigationSteps.length) {
             final stepEnd = _navigationSteps[_currentStepIndex].endLocation;
             final distanceToStepEnd =
-                _calculateDistance(currentPos, stepEnd) * 1000;
+                _calculateDistance(currentPos, stepEnd) * 1000; // meters
+
+            _calculateRideDetails();
 
             if (distanceToStepEnd < 30) {
               setState(() {
@@ -367,10 +438,10 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             }
           }
 
-          // Check if reached destination
+          // 🎯 Check destination reached
           final distanceToDestination =
               _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
-          if (distanceToDestination < 20) {
+          if (distanceToDestination < 500) {
             widget.onReach();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text("🎯 Ride Finished")),
@@ -379,6 +450,14 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           }
         });
   }
+
+  double _smoothBearing(double oldBearing, double newBearing) {
+    double diff = newBearing - oldBearing;
+    if (diff.abs() > 180) diff -= 360 * diff.sign;
+    return (oldBearing + diff * 0.25) % 360; // 0.25 = smoothness factor
+  }
+
+
 
   double _getNearestPolylineDistance(LatLng currentPos) {
     double minDistance = double.infinity;
@@ -396,72 +475,74 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: _initial,
-            myLocationEnabled: false,
-            zoomControlsEnabled: false,
-            markers: _markers,
-            polylines: _polylines,
-            onMapCreated: (controller) => _ctrl.complete(controller),
-            // onTap: _handleMapTap,
-          ),
-          // Positioned(
-          //   top: 40,
-          //   left: 16,
-          //   right: 16,
-          //   child: Card(
-          //     child: ListTile(
-          //       leading: const Icon(Icons.search),
-          //       title: const Text("Tap to select destination"),
-          //       onTap: _startDestinationSelection,
-          //     ),
-          //   ),
-          // ),
-          if (widget.isShowRideButton)
-            Positioned(
-              bottom: 30,
-              left: 20,
-              right: 20,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                onPressed: _startRide,
-                child: const Text("Start Ride", style: TextStyle(fontSize: 18)),
-              ),
+    return SafeArea(
+      child: Scaffold(
+        body: Stack(
+          children: [
+            GoogleMap(
+              initialCameraPosition: _initial,
+              myLocationEnabled: false,
+              zoomControlsEnabled: false,
+              markers: _markers,
+              polylines: _polylines,
+              onMapCreated: (controller) => _ctrl.complete(controller),
+              // onTap: _handleMapTap,
             ),
-          if (_estimatedDistance != null && _estimatedTime != null)
-            Positioned(
-              bottom: 90,
-              left: 20,
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                      "Distance: $_estimatedDistance km | ETA: $_estimatedTime min"),
+            // Positioned(
+            //   top: 40,
+            //   left: 16,
+            //   right: 16,
+            //   child: Card(
+            //     child: ListTile(
+            //       leading: const Icon(Icons.search),
+            //       title: const Text("Tap to select destination"),
+            //       onTap: _startDestinationSelection,
+            //     ),
+            //   ),
+            // ),
+            if (widget.isShowRideButton)
+              Positioned(
+                bottom: 30,
+                left: 20,
+                right: 20,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onPressed: _startRide,
+                  child:  Text(startRide, style: TextStyle(fontSize: 18)),
                 ),
               ),
-            ),
-          if (_navigationSteps.isNotEmpty && _currentStepIndex < _navigationSteps.length)
-            Positioned(
-              bottom: 150,
-              left: 20,
-              right: 20,
-              child: Card(
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    "Next: ${_navigationSteps[_currentStepIndex].instruction}",
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            if (_estimatedDistance != null && _estimatedTime != null)
+              Positioned(
+                bottom: 90,
+                left: 20,
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                        "Distance: $_estimatedDistance km | ETA: $_estimatedTime min"),
                   ),
                 ),
               ),
-            ),
-        ],
+            if (_navigationSteps.isNotEmpty && _currentStepIndex < _navigationSteps.length)
+              Positioned(
+                bottom: 150,
+                left: 20,
+                right: 20,
+                child: Card(
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      "Next: ${_navigationSteps[_currentStepIndex].instruction}",
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

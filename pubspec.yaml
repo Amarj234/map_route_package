@@ -1,6 +1,6 @@
 name: distance_route
 description: A Flutter package for calculating and displaying routes with Google Maps.
-version: 0.0.6
+version: 0.0.8
 homepage: https://amarj234.github.io/
 repository: https://github.com/Amarj234/map_route_package.git
 
@@ -16,6 +16,7 @@ dependencies:
   geolocator: ^14.0.2
   flutter_polyline_points: ^3.1.0
   http: ^1.5.0
+  keep_screen_on: ^5.0.0
 
 dev_dependencies:
   flutter_test:
