@@ -4,9 +4,10 @@ import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-export 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+export "package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart";
 import 'package:http/http.dart' as http;
 import 'package:keep_screen_on/keep_screen_on.dart';
 
@@ -19,7 +20,7 @@ class MapScreenRoute extends StatefulWidget {
   final bool isShowRideButton;
   final String apiKey;
   final Function() onReach;
-  MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach});
+  const MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach});
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
@@ -50,7 +51,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   String? _estimatedTime;
 
   Map<String, LatLng> _drivers = {
-    'driver_1': LatLng(28.616, 77.21),
+    'driver_1': const LatLng(28.616, 77.21),
   };
 
   Timer? _rideTimer;
@@ -63,10 +64,10 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   void initState() {
     if(widget.pickupLocations!=null){
       pickupLocation=widget.pickupLocations;}
-    Future.delayed(Duration(seconds: 4),()async{
+    Future.delayed(const Duration(seconds: 4),()async{
       if(pickupLocation==null){
         final pos = await Geolocator.getCurrentPosition(
-            timeLimit: Duration(seconds: 1), // ensure frequent updates
+            timeLimit: const Duration(seconds: 1), // ensure frequent updates
             // half-second updates
             desiredAccuracy: LocationAccuracy.bestForNavigation);
         pickupLocation =LatLng(pos.latitude, pos.longitude);
@@ -163,7 +164,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     if (permission == LocationPermission.deniedForever) return;
 
     final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.bestForNavigation,
-      timeLimit: Duration(seconds: 1), // ensure frequent updates
+      timeLimit: const Duration(seconds: 1), // ensure frequent updates
       // half-second updates
     );
     _userLocation = LatLng(pos.latitude, pos.longitude);
@@ -216,6 +217,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   }
 
 
+  bool _isLoadingRoute = true;
 
 
   Future<void> _drawRoute(LatLng origin, LatLng destination) async {
@@ -258,6 +260,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     }
 
     _calculateRideDetails();
+    _isLoadingRoute=false;
     setState(() {});
   }
 
@@ -357,30 +360,67 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   // }
 
 
+  double _liveBearing = 0.0;
 
   StreamSubscription<Position>? _positionStream;
   double? _lastBearing;
 
+
+  double _getRemainingDistance(LatLng currentPos) {
+    double total = 0;
+
+    // Find closest polyline index
+    int closestIndex = 0;
+    double minDist = double.infinity;
+
+    for (int i = 0; i < _routePoints.length; i++) {
+      double dist = _calculateDistance(currentPos, _routePoints[i]);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIndex = i;
+      }
+    }
+
+    // Add remaining distance on polyline
+    for (int i = closestIndex; i < _routePoints.length - 1; i++) {
+      total += _calculateDistance(_routePoints[i], _routePoints[i+1]);
+    }
+
+    return total; // in km
+  }
+
+  String _calculateETA(double distanceKm) {
+    const double avgSpeedKmH = 30; // adjust as you want
+    double timeHours = distanceKm / avgSpeedKmH;
+    int minutes = (timeHours * 60).round();
+    return minutes.toString();
+  }
+
+
+
+
   void _startRide() async {
     if (_routePoints.isEmpty || widget.destinationLocation == null) return;
 
-    _positionStream?.cancel(); // Cancel previous listener if any
+    _positionStream?.cancel();
     _currentStepIndex = 0;
-    _lastBearing = null; // reset bearing memory
 
-    // 🟢 Get the last known location immediately
+    // 🔥 Compass listener — instant rotation
+    FlutterCompass.events!.listen((event) {
+      if (event.heading != null) {
+        _liveBearing = event.heading!;
+      }
+    });
+
+    // 🌎 Last location
     Position? lastPosition = await Geolocator.getLastKnownPosition();
     if (lastPosition != null) {
       final currentPos = LatLng(lastPosition.latitude, lastPosition.longitude);
       _userLocation = currentPos;
       _drivers["driver_1"] = currentPos;
-      _initMarkers();
 
-      // Move camera initially toward route start
-      double bearing = _routePoints.isNotEmpty
-          ? _calculateBearing(currentPos, _routePoints.first)
-          : 0;
-      _moveCamera(currentPos, bearing: bearing);
+      _initMarkers();
+      _moveCamera(currentPos, bearing: _liveBearing);
     }
 
     startRide = "Re Route";
@@ -390,46 +430,48 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
       distanceFilter: 0,
     );
 
-    // 🚀 Start live location updates
+    // 🚀 Live location updates
     _positionStream =
         Geolocator.getPositionStream(locationSettings: locationSettings)
             .listen((Position position) async {
           final currentPos = LatLng(position.latitude, position.longitude);
           _userLocation = currentPos;
           _drivers["driver_1"] = currentPos;
+
           _initMarkers();
 
-          // 🧭 Calculate bearing
-          double bearing = position.heading;
+          // 🧭 INSTANT ROTATION
+          double bearing = _liveBearing;
 
-          // Fallback if heading is unreliable (0)
-          if (bearing == 0.0 && _routePoints.isNotEmpty) {
-            bearing = _calculateBearing(currentPos, _routePoints.last);
-          }
+          // 🎥 Move map + bike instantly
+          _moveCamera(
+            currentPos,
+            bearing: bearing,
+          );
 
-          // Smooth transition to prevent sudden rotation jumps
-          if (_lastBearing != null) {
-            bearing = _smoothBearing(_lastBearing!, bearing);
-          }
-          _lastBearing = bearing;
+          // =============================
+          // 🔥 LIVE ETA + DISTANCE UPDATE
+          // =============================
+          double remainingKm = _getRemainingDistance(currentPos);
+          String remainingTime = _calculateETA(remainingKm);
 
-          // 🎥 Move camera with tilt and bearing
-          _moveCamera(currentPos, bearing: bearing);
+          setState(() {
+            _estimatedDistance = double.parse(remainingKm.toStringAsFixed(2));
+            _estimatedTime = remainingTime;
+          });
 
-          // 🚧 Check if driver goes off route (> 50m)
+          // 🚧 Check off-route (50m)
           final nearestDistance = _getNearestPolylineDistance(currentPos);
           if (nearestDistance > 50) {
             _drawRoute(currentPos, widget.destinationLocation!);
             return;
           }
 
-          // 📍 Step-by-step navigation updates
+          // 📍 Step navigation
           if (_currentStepIndex < _navigationSteps.length) {
             final stepEnd = _navigationSteps[_currentStepIndex].endLocation;
             final distanceToStepEnd =
                 _calculateDistance(currentPos, stepEnd) * 1000; // meters
-
-            _calculateRideDetails();
 
             if (distanceToStepEnd < 30) {
               setState(() {
@@ -438,9 +480,10 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
             }
           }
 
-          // 🎯 Check destination reached
+          // 🎯 Destination reached
           final distanceToDestination =
               _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
+
           if (distanceToDestination < 500) {
             widget.onReach();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -450,6 +493,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           }
         });
   }
+
 
   double _smoothBearing(double oldBearing, double newBearing) {
     double diff = newBearing - oldBearing;
@@ -477,7 +521,9 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
-        body: Stack(
+        body:
+        _isLoadingRoute?const Center(child: CircularProgressIndicator(),):
+        Stack(
           children: [
             GoogleMap(
               initialCameraPosition: _initial,
@@ -510,7 +556,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   onPressed: _startRide,
-                  child:  Text(startRide, style: TextStyle(fontSize: 18)),
+                  child:  Text(startRide, style: const TextStyle(fontSize: 18)),
                 ),
               ),
             if (_estimatedDistance != null && _estimatedTime != null)
