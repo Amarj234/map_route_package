@@ -11,22 +11,25 @@ export "package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 import 'package:http/http.dart' as http;
 import 'package:keep_screen_on/keep_screen_on.dart';
 
+
 class MapScreenRoute extends StatefulWidget {
   final LatLng? pickupLocations;
   final LatLng? destinationLocation;
   final String bikeIcon;
+  final Color? buttonColor;
   final String dropIcon;
   final String pickupIcon;
   final bool isShowRideButton;
   final String apiKey;
-  final Function() onReach;
-  const MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach});
+  final Function(double distance) onReach;
+  final Widget? rideButton;
+  const MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach,  this.rideButton,this.buttonColor});
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
 }
 
-class _MapScreenRouteState extends State<MapScreenRoute> {
+class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStateMixin {
   final Completer<GoogleMapController> _ctrl = Completer();
   static const CameraPosition _initial = CameraPosition(
     target: LatLng(28.6139, 77.2090),
@@ -49,6 +52,15 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   List<LatLng> _routePoints = [];
   double? _estimatedDistance;
   String? _estimatedTime;
+
+  late AnimationController _topInstructionController;
+  late AnimationController _bottomPillController;
+  late AnimationController _etaController;
+
+  late Animation<Offset> _topSlide;
+  late Animation<Offset> _bottomSlide;
+  late Animation<double> _etaFade;
+
 
   Map<String, LatLng> _drivers = {
     'driver_1': const LatLng(28.616, 77.21),
@@ -74,6 +86,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
       }
 
       _drawRoute(pickupLocation!, widget.destinationLocation!);
+      initlizeAnimation();
 
     });
     super.initState();
@@ -81,6 +94,53 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     _listenLocation();
     // Keep the screen on.
     KeepScreenOn.turnOn();
+
+
+  }
+
+  initlizeAnimation(){
+
+    _topInstructionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+
+    _bottomPillController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _etaController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _topSlide = Tween<Offset>(
+      begin: const Offset(0, -1),
+      end: const Offset(0, 0),
+    ).animate(
+      CurvedAnimation(
+        parent: _topInstructionController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _bottomSlide = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: const Offset(0, 0),
+    ).animate(
+      CurvedAnimation(
+        parent: _bottomPillController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    _etaFade = Tween<double>(begin: 0, end: 1).animate(_etaController);
+
+    // Trigger animations on screen open
+    _topInstructionController.forward();
+    _bottomPillController.forward();
+    _etaController.forward();
   }
 
   @override
@@ -89,6 +149,9 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
     _rideTimer?.cancel();
     _positionStream?.cancel();
     KeepScreenOn.turnOff();
+    _topInstructionController.dispose();
+    _bottomPillController.dispose();
+    _etaController.dispose();
     super.dispose();
   }
 
@@ -456,7 +519,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           String remainingTime = _calculateETA(remainingKm);
 
           setState(() {
-            _estimatedDistance = double.parse(remainingKm.toStringAsFixed(2));
+            _estimatedDistance = double.parse(remainingKm.toStringAsFixed(3));
             _estimatedTime = remainingTime;
           });
 
@@ -484,13 +547,13 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
           final distanceToDestination =
               _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
 
-          if (distanceToDestination < 500) {
-            widget.onReach();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("🎯 Ride Finished")),
-            );
-            _positionStream?.cancel();
-          }
+          //if (distanceToDestination < 500) {
+          widget.onReach(distanceToDestination);
+          // ScaffoldMessenger.of(context).showSnackBar(
+          //   const SnackBar(content: Text("🎯 Ride Finished")),
+          // );
+          // _positionStream?.cancel();
+          // }
         });
   }
 
@@ -521,78 +584,220 @@ class _MapScreenRouteState extends State<MapScreenRoute> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
-        body:
-        _isLoadingRoute?const Center(child: CircularProgressIndicator(),):
-        Stack(
-          children: [
-            GoogleMap(
-              initialCameraPosition: _initial,
-              myLocationEnabled: false,
-              zoomControlsEnabled: false,
-              markers: _markers,
-              polylines: _polylines,
-              onMapCreated: (controller) => _ctrl.complete(controller),
-              // onTap: _handleMapTap,
-            ),
-            // Positioned(
-            //   top: 40,
-            //   left: 16,
-            //   right: 16,
-            //   child: Card(
-            //     child: ListTile(
-            //       leading: const Icon(Icons.search),
-            //       title: const Text("Tap to select destination"),
-            //       onTap: _startDestinationSelection,
-            //     ),
-            //   ),
-            // ),
-            if (widget.isShowRideButton)
-              Positioned(
-                bottom: 30,
-                left: 20,
-                right: 20,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  onPressed: _startRide,
-                  child:  Text(startRide, style: const TextStyle(fontSize: 18)),
-                ),
+          body:
+          _isLoadingRoute?const Center(child: CircularProgressIndicator(),):
+          Stack(
+            children: [
+              // MAP
+              GoogleMap(
+                mapType: MapType.normal,
+
+                initialCameraPosition: _initial,
+                compassEnabled: false,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                markers: _markers,
+                polylines: _polylines,
+                onMapCreated: (controller) {
+
+                  _ctrl.complete(controller);},
+                // onTap: _handleMapTap,
               ),
-            if (_estimatedDistance != null && _estimatedTime != null)
+
+
+              // ---------- TOP INSTRUCTION (Slide Down) ----------
               Positioned(
-                bottom: 90,
-                left: 20,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Text(
-                        "Distance: $_estimatedDistance km | ETA: $_estimatedTime min"),
-                  ),
-                ),
-              ),
-            if (_navigationSteps.isNotEmpty && _currentStepIndex < _navigationSteps.length)
-              Positioned(
-                bottom: 150,
-                left: 20,
-                right: 20,
-                child: Card(
-                  color: Colors.white,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      "Next: ${_navigationSteps[_currentStepIndex].instruction}",
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                bottom: 100,
+                left: 0,
+                right: 0,
+                child: SlideTransition(
+                  position: _topSlide,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.75),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (child, anim) =>
+                            FadeTransition(opacity: anim, child: child),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _currentStepIndex < _navigationSteps.length
+                                    ? _navigationSteps[_currentStepIndex].instruction
+                                    : "Continue straight",
+                                key: ValueKey(_currentStepIndex),
+                                softWrap: true,
+                                maxLines: 3, // 👈 adjust as needed
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              _getTurnIcon(_navigationSteps, _currentStepIndex),
+                              size: 32,
+                              color: Colors.white,
+                            ),
+                          ],
+                        ),
+
+                      ),
                     ),
                   ),
                 ),
               ),
-          ],
-        ),
+
+              // ---------- ETA CARD (Fade on update) ----------
+              Positioned(
+                top: 10,
+                left: 20,
+                child: FadeTransition(
+                  opacity: _etaFade,
+                  child: ScaleTransition(
+                    scale: _etaController,
+                    child: Container(
+                      width: 240,  // ← control bubble width (increase if needed)
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 10,
+                          )
+                        ],
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.timer_outlined, size: 22),
+                          const SizedBox(width: 10),
+
+                          /// EXPANDED so text wraps to multiple lines
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+
+                                /// ETA - First Line
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  transitionBuilder: (child, anim) =>
+                                      FadeTransition(opacity: anim, child: child),
+                                  child: Text(
+                                    "${_estimatedTime} min",
+                                    key: ValueKey("time_$_estimatedTime"),
+                                    maxLines: null,
+                                    softWrap: true,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 4),
+
+                                Row(
+                                  children: [
+                                    const Icon(Icons.route_outlined, size: 20),
+                                    const SizedBox(width: 6),
+
+                                    /// DISTANCE - Second Line
+                                    Expanded(
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(milliseconds: 300),
+                                        transitionBuilder: (child, anim) =>
+                                            FadeTransition(opacity: anim, child: child),
+                                        child: Text(
+                                          "${_estimatedDistance} km",
+                                          key: ValueKey("distance_$_estimatedDistance"),
+                                          maxLines: null,
+                                          softWrap: true,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+
+              // ---------- BOTTOM TURN PILL (Slide Up + Fade) ----------
+
+              Positioned(
+                bottom: 20,
+                left: 20,
+                right: 20,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() => rideStarted = true);
+                    _startRide();   // <-- your function
+                  },
+                  child: widget.rideButton ?? Container(
+                    padding:  EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color:widget.buttonColor?? Colors.black,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Center(
+                      child: Text(
+                        startRide,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            ],
+          )
+
       ),
     );
   }
 }
+bool rideStarted = false;
+
+IconData _getTurnIcon(List steps, int index) {
+  if (index >= steps.length) return Icons.straight;
+
+  String instruction = steps[index].instruction.toLowerCase();
+
+  if (instruction.contains("left")) return Icons.turn_left;
+  if (instruction.contains("right")) return Icons.turn_right;
+  if (instruction.contains("u-turn")) return Icons.u_turn_left;
+
+  return Icons.straight;
+}
+
 
 // Helper class to store step info
 class StepInfo {

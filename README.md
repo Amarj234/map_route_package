@@ -111,12 +111,13 @@ pod install
 ```dart
 
 MapScreenRoute(
-  apiKey: "YOUR_GOOGLE_MAPS_API_KEY",
-  bikeIcon: 'assets/AppAsset/bike_icon.png',
-  dropIcon: 'assets/AppAsset/destination_icon.png',
-  pickupIcon: 'assets/AppAsset/pickup_icon.png',
-  destinationLocation: LatLng(28.6139, 77.2090), // Example: Delhi
-)
+bikeIcon: "assets/bike_icon.png",
+dropIcon: "assets/destination_icon.png", 
+pickupIcon: "assets/pickup_icon.png",
+destinationLocation: LatLng(32.3, 71.5), 
+apiKey: '',
+onReach: (double distance) {  },
+),
 
 ```
 
