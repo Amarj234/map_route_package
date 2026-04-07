@@ -20,6 +20,9 @@ class MapScreenRoute extends StatefulWidget {
   final String pickupIcon;
   final bool isShowRideButton;
   final String apiKey;
+  final Size? bikeIconSize;
+  final Size? dropIconSize;
+  final Size? pickupIconSize;
   final Function(double distance) onReach;
   final Widget? rideButton;
   const MapScreenRoute({
@@ -34,6 +37,9 @@ class MapScreenRoute extends StatefulWidget {
     required this.onReach,
     this.rideButton,
     this.buttonColor,
+    this.bikeIconSize,
+    this.dropIconSize,
+    this.pickupIconSize,
   });
 
   @override
@@ -75,7 +81,6 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   double _newRotation = 0;
 
   late Animation<Offset> _topSlide;
-  late Animation<Offset> _bottomSlide;
   late Animation<double> _etaFade;
 
   Map<String, LatLng> _drivers = {'driver_1': const LatLng(28.616, 77.21)};
@@ -147,7 +152,6 @@ class _MapScreenRouteState extends State<MapScreenRoute>
           ),
         );
 
-    _bottomSlide =
         Tween<Offset>(
           begin: const Offset(0, 1),
           end: const Offset(0, 0),
@@ -202,21 +206,34 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   }
 
   Future<void> _loadCustomIcons() async {
-    _bikeIcon = await _loadCustomMarker(widget.bikeIcon, width: 120);
-    _pickupIcon = await _loadCustomMarker(widget.pickupIcon, width: 40);
-    _destinationIcon = await _loadCustomMarker(widget.dropIcon, width: 40);
+    _bikeIcon = await _loadCustomMarker(
+      widget.bikeIcon,
+      width: widget.bikeIconSize?.width.toInt() ?? 120,
+      height: widget.bikeIconSize?.height.toInt() ?? 100,
+    );
+    _pickupIcon = await _loadCustomMarker(
+      widget.pickupIcon,
+      width: widget.pickupIconSize?.width.toInt() ?? 40,
+      height: widget.pickupIconSize?.height.toInt() ?? 40,
+    );
+    _destinationIcon = await _loadCustomMarker(
+      widget.dropIcon,
+      width: widget.dropIconSize?.width.toInt() ?? 40,
+      height: widget.dropIconSize?.height.toInt() ?? 40,
+    );
   }
 
   Future<BitmapDescriptor> _loadCustomMarker(
     String assetPath, {
     int width = 120,
+    int height = 100,
   }) async {
     final byteData = await rootBundle.load(assetPath);
     Uint8List bytes = byteData.buffer.asUint8List();
     final codec = await ui.instantiateImageCodec(
       bytes,
       targetWidth: width,
-      targetHeight: 100,
+      targetHeight: height,
     );
     final frame = await codec.getNextFrame();
     final resizedBytes = (await frame.image.toByteData(
@@ -559,7 +576,6 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   double _liveBearing = 0.0;
 
   StreamSubscription<Position>? _positionStream;
-  double? _lastBearing;
 
   double _getRemainingDistance(LatLng currentPos) {
     double total = 0;
@@ -701,11 +717,6 @@ class _MapScreenRouteState extends State<MapScreenRoute>
         );
   }
 
-  double _smoothBearing(double oldBearing, double newBearing) {
-    double diff = newBearing - oldBearing;
-    if (diff.abs() > 180) diff -= 360 * diff.sign;
-    return (oldBearing + diff * 0.25) % 360; // 0.25 = smoothness factor
-  }
 
   double _getNearestPolylineDistance(LatLng currentPos) {
     double minDistance = double.infinity;
@@ -852,7 +863,7 @@ class _MapScreenRouteState extends State<MapScreenRoute>
                                               child: child,
                                             ),
                                         child: Text(
-                                          "${_estimatedTime} min",
+                                          "$_estimatedTime min",
                                           key: ValueKey("time_$_estimatedTime"),
                                           maxLines: null,
                                           softWrap: true,
@@ -886,7 +897,7 @@ class _MapScreenRouteState extends State<MapScreenRoute>
                                                         child: child,
                                                       ),
                                               child: Text(
-                                                "${_estimatedDistance} km",
+                                                "$_estimatedDistance km",
                                                 key: ValueKey(
                                                   "distance_$_estimatedDistance",
                                                 ),

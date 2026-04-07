@@ -108,26 +108,48 @@ pod install
 
 
 ```
+## 🚀 Usage
+
 ```dart
-
 MapScreenRoute(
-bikeIcon: "assets/bike_icon.png",
-dropIcon: "assets/destination_icon.png", 
-pickupIcon: "assets/pickup_icon.png",
-destinationLocation: LatLng(32.3, 71.5), 
-apiKey: '',
-onReach: (double distance) {  },
+  bikeIcon: "assets/bike_icon.png",
+  dropIcon: "assets/destination_icon.png", 
+  pickupIcon: "assets/pickup_icon.png",
+  destinationLocation: LatLng(32.3, 71.5), 
+  apiKey: 'YOUR_GOOGLE_MAPS_API_KEY',
+  onReach: (double distance) { 
+    print("Reached destination! Distance: $distance");
+  },
+  bikeIconSize: const Size(150, 300), // Optional
+  pickupIconSize: const Size(40, 40), // Optional
+  dropIconSize: const Size(40, 40),   // Optional
 ),
-
 ```
 
+## 🛠️ Parameters
+
+| Parameter | Type | Mandatory | Description |
+|-----------|------|-----------|-------------|
+| `bikeIcon` | `String` | ✅ Yes | Asset path to the bike/driver icon. |
+| `dropIcon` | `String` | ✅ Yes | Asset path to the destination icon. |
+| `pickupIcon` | `String` | ✅ Yes | Asset path to the pickup point icon. |
+| `destinationLocation` | `LatLng` | ✅ Yes | Coordinates of the destination. |
+| `apiKey` | `String` | ✅ Yes | Your Google Maps API Key (with Directions API enabled). |
+| `onReach` | `Function(double)` | ✅ Yes | Callback function triggered when the user reaches the destination. |
+| `pickupLocations` | `LatLng?` | ❌ No | Initial pickup location. If not provided, it uses current user location. |
+| `buttonColor` | `Color?` | ❌ No | Background color for the default ride button. |
+| `isShowRideButton` | `bool` | ❌ No | Whether to show the default "Start Ride" button. Default is `true`. |
+| `rideButton` | `Widget?` | ❌ No | Custom widget to replace the default ride button. |
+| `bikeIconSize` | `Size?` | ❌ No | Custom size for the bike/driver icon. Default is `120x100`. |
+| `dropIconSize` | `Size?` | ❌ No | Custom size for the destination icon. Default is `40x40`. |
+| `pickupIconSize` | `Size?` | ❌ No | Custom size for the pickup icon. Default is `40x40`. |
 
 ```yaml 
 flutter:
   assets:
-    - assets/AppAsset/bike_icon.png
-    - assets/AppAsset/pickup_icon.png
-    - assets/AppAsset/destination_icon.png
+    - assets/bike_icon.png
+    - assets/pickup_icon.png
+    - assets/destination_icon.png
 ```
 
 
