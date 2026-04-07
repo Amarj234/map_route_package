@@ -20,11 +20,13 @@ class _MyAppState extends State<MyApp> {
       home: MapScreenRoute(
         bikeIcon: "assets/bike_icon.png",
         bikeIconSize: const Size(150, 300),
-
+        pickupIconSize: const Size(100, 100), // Optional
+        dropIconSize: const Size(100, 100),
         dropIcon: "assets/destination_icon.png",
         pickupIcon: "assets/pickup_icon.png",
-        destinationLocation: LatLng(25.494203, 81.856172),
-        apiKey: 'AIzaSyA_eZUKNL4zn38GjhZZXgkyIcb6QhOILJc',
+        destinationLocation: LatLng(25.4681589, 81.8648168),
+        apiKey:
+            'Past Your Google Map Key Here', // make soure you have enable all required feature
         onReach: (double distance) {},
       ),
     );
