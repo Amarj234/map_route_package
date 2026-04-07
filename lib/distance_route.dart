@@ -11,7 +11,6 @@ export "package:google_maps_flutter_platform_interface/google_maps_flutter_platf
 import 'package:http/http.dart' as http;
 import 'package:keep_screen_on/keep_screen_on.dart';
 
-
 class MapScreenRoute extends StatefulWidget {
   final LatLng? pickupLocations;
   final LatLng? destinationLocation;
@@ -23,13 +22,26 @@ class MapScreenRoute extends StatefulWidget {
   final String apiKey;
   final Function(double distance) onReach;
   final Widget? rideButton;
-  const MapScreenRoute({super.key, required this.bikeIcon, required this.dropIcon, required this.pickupIcon,required this.destinationLocation, required this.apiKey,this.pickupLocations,this.isShowRideButton=true, required this.onReach,  this.rideButton,this.buttonColor});
+  const MapScreenRoute({
+    super.key,
+    required this.bikeIcon,
+    required this.dropIcon,
+    required this.pickupIcon,
+    required this.destinationLocation,
+    required this.apiKey,
+    this.pickupLocations,
+    this.isShowRideButton = true,
+    required this.onReach,
+    this.rideButton,
+    this.buttonColor,
+  });
 
   @override
   State<MapScreenRoute> createState() => _MapScreenRouteState();
 }
 
-class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStateMixin {
+class _MapScreenRouteState extends State<MapScreenRoute>
+    with TickerProviderStateMixin {
   final Completer<GoogleMapController> _ctrl = Completer();
   static const CameraPosition _initial = CameraPosition(
     target: LatLng(28.6139, 77.2090),
@@ -46,8 +58,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
 
   StreamSubscription<Position>? _posSub;
 
-  String startRide="Start Ride";
-
+  String startRide = "Start Ride";
 
   List<LatLng> _routePoints = [];
   double? _estimatedDistance;
@@ -57,14 +68,17 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
   late AnimationController _bottomPillController;
   late AnimationController _etaController;
 
+  late AnimationController _markerController;
+  LatLng? _oldPosition;
+  LatLng? _newPosition;
+  double _oldRotation = 0;
+  double _newRotation = 0;
+
   late Animation<Offset> _topSlide;
   late Animation<Offset> _bottomSlide;
   late Animation<double> _etaFade;
 
-
-  Map<String, LatLng> _drivers = {
-    'driver_1': const LatLng(28.616, 77.21),
-  };
+  Map<String, LatLng> _drivers = {'driver_1': const LatLng(28.616, 77.21)};
 
   Timer? _rideTimer;
 
@@ -74,32 +88,39 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
 
   @override
   void initState() {
-    if(widget.pickupLocations!=null){
-      pickupLocation=widget.pickupLocations;}
-    Future.delayed(const Duration(seconds: 4),()async{
-      if(pickupLocation==null){
-        final pos = await Geolocator.getCurrentPosition(
-            timeLimit: const Duration(seconds: 1), // ensure frequent updates
-            // half-second updates
-            desiredAccuracy: LocationAccuracy.bestForNavigation);
-        pickupLocation =LatLng(pos.latitude, pos.longitude);
+    if (widget.pickupLocations != null) {
+      pickupLocation = widget.pickupLocations;
+    }
+    Future.delayed(const Duration(seconds: 4), () async {
+      if (pickupLocation == null) {
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            timeLimit: const Duration(seconds: 10), // increased timeout
+            desiredAccuracy: LocationAccuracy.bestForNavigation,
+          );
+          pickupLocation = LatLng(pos.latitude, pos.longitude);
+        } catch (e) {
+          // If getCurrentPosition fails, try to get last known location
+          final lastPos = await Geolocator.getLastKnownPosition();
+          if (lastPos != null) {
+            pickupLocation = LatLng(lastPos.latitude, lastPos.longitude);
+          }
+        }
       }
 
-      _drawRoute(pickupLocation!, widget.destinationLocation!);
-      initlizeAnimation();
-
+      if (pickupLocation != null) {
+        _drawRoute(pickupLocation!, widget.destinationLocation!);
+        initlizeAnimation();
+      }
     });
     super.initState();
     _loadCustomIcons().then((_) => _initMarkers());
     _listenLocation();
     // Keep the screen on.
     KeepScreenOn.turnOn();
-
-
   }
 
-  initlizeAnimation(){
-
+  initlizeAnimation() {
     _topInstructionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -115,27 +136,51 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
       duration: const Duration(milliseconds: 350),
     );
 
-    _topSlide = Tween<Offset>(
-      begin: const Offset(0, -1),
-      end: const Offset(0, 0),
-    ).animate(
-      CurvedAnimation(
-        parent: _topInstructionController,
-        curve: Curves.easeOutBack,
-      ),
-    );
+    _topSlide =
+        Tween<Offset>(
+          begin: const Offset(0, -1),
+          end: const Offset(0, 0),
+        ).animate(
+          CurvedAnimation(
+            parent: _topInstructionController,
+            curve: Curves.easeOutBack,
+          ),
+        );
 
-    _bottomSlide = Tween<Offset>(
-      begin: const Offset(0, 1),
-      end: const Offset(0, 0),
-    ).animate(
-      CurvedAnimation(
-        parent: _bottomPillController,
-        curve: Curves.easeOutBack,
-      ),
-    );
+    _bottomSlide =
+        Tween<Offset>(
+          begin: const Offset(0, 1),
+          end: const Offset(0, 0),
+        ).animate(
+          CurvedAnimation(
+            parent: _bottomPillController,
+            curve: Curves.easeOutBack,
+          ),
+        );
 
     _etaFade = Tween<double>(begin: 0, end: 1).animate(_etaController);
+
+    _markerController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 1))
+          ..addListener(() {
+            setState(() {
+              if (_oldPosition != null && _newPosition != null) {
+                final double t = _markerController.value;
+                final double lat =
+                    _oldPosition!.latitude +
+                    (_newPosition!.latitude - _oldPosition!.latitude) * t;
+                final double lng =
+                    _oldPosition!.longitude +
+                    (_newPosition!.longitude - _oldPosition!.longitude) * t;
+                _drivers["driver_1"] = LatLng(lat, lng);
+
+                double diff = _newRotation - _oldRotation;
+                if (diff.abs() > 180) diff -= 360 * diff.sign;
+                _liveBearing = (_oldRotation + diff * t) % 360;
+              }
+              _initMarkers();
+            });
+          });
 
     // Trigger animations on screen open
     _topInstructionController.forward();
@@ -152,6 +197,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     _topInstructionController.dispose();
     _bottomPillController.dispose();
     _etaController.dispose();
+    _markerController.dispose();
     super.dispose();
   }
 
@@ -161,53 +207,76 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     _destinationIcon = await _loadCustomMarker(widget.dropIcon, width: 40);
   }
 
-  Future<BitmapDescriptor> _loadCustomMarker(String assetPath, {int width = 120}) async {
+  Future<BitmapDescriptor> _loadCustomMarker(
+    String assetPath, {
+    int width = 120,
+  }) async {
     final byteData = await rootBundle.load(assetPath);
     Uint8List bytes = byteData.buffer.asUint8List();
-    final codec = await ui.instantiateImageCodec(bytes, targetWidth: width, targetHeight: 100);
+    final codec = await ui.instantiateImageCodec(
+      bytes,
+      targetWidth: width,
+      targetHeight: 100,
+    );
     final frame = await codec.getNextFrame();
-    final resizedBytes = (await frame.image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+    final resizedBytes = (await frame.image.toByteData(
+      format: ui.ImageByteFormat.png,
+    ))!.buffer.asUint8List();
     return BitmapDescriptor.fromBytes(resizedBytes);
   }
 
   void _initMarkers() {
     _markers.clear();
 
-    if (_userLocation != null) {
-      _markers.add(Marker(
-        markerId: const MarkerId('user'),
-        position: _userLocation!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: const InfoWindow(title: 'Your Location'),
-      ));
+    if (_userLocation != null && !rideStarted) {
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('user'),
+          position: _userLocation!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          infoWindow: const InfoWindow(title: 'Your Location'),
+        ),
+      );
     }
 
     if (pickupLocation != null) {
-      _markers.add(Marker(
-        markerId: const MarkerId('pickup'),
-        position: pickupLocation!,
-        icon: _pickupIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        infoWindow: const InfoWindow(title: 'Pickup Point'),
-      ));
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('pickup'),
+          position: pickupLocation!,
+          icon:
+              _pickupIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(title: 'Pickup Point'),
+        ),
+      );
     }
 
     if (widget.destinationLocation != null) {
-      _markers.add(Marker(
-        markerId: const MarkerId('destination'),
-        position: widget.destinationLocation!,
-        icon: _destinationIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: 'Destination'),
-      ));
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: widget.destinationLocation!,
+          icon:
+              _destinationIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(title: 'Destination'),
+        ),
+      );
     }
 
     _drivers.forEach((id, pos) {
-      _markers.add(Marker(
-        markerId: MarkerId(id),
-        position: pos,
-        icon: _bikeIcon ?? BitmapDescriptor.defaultMarker,
-        anchor: const Offset(0.5, 0.5),
-        infoWindow: const InfoWindow(title: 'Driver'),
-      ));
+      _markers.add(
+        Marker(
+          markerId: MarkerId(id),
+          position: pos,
+          icon: _bikeIcon ?? BitmapDescriptor.defaultMarker,
+          anchor: const Offset(0.5, 0.5),
+          rotation: _liveBearing,
+          flat: true,
+          infoWindow: const InfoWindow(title: 'Driver'),
+        ),
+      );
     });
 
     setState(() {});
@@ -226,24 +295,35 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     }
     if (permission == LocationPermission.deniedForever) return;
 
-    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.bestForNavigation,
-      timeLimit: const Duration(seconds: 1), // ensure frequent updates
-      // half-second updates
-    );
-    _userLocation = LatLng(pos.latitude, pos.longitude);
-    pickupLocation ??= _userLocation;
+    try {
+      // Try to get last known position first (fastest)
+      Position? pos = await Geolocator.getLastKnownPosition();
 
-    _moveCamera(_userLocation!, zoom: 15);
-    _initMarkers();
+      // If no last known position, request current position
+      pos ??= await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+        timeLimit: const Duration(seconds: 10),
+      );
 
-    _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(distanceFilter: 0),
-    ).listen((p) {
-      _userLocation = LatLng(p.latitude, p.longitude);
+      _userLocation = LatLng(pos.latitude, pos.longitude);
+      pickupLocation ??= _userLocation;
 
+      _moveCamera(_userLocation!, zoom: 15);
       _initMarkers();
-    });
+    } catch (e) {
+      debugPrint("Error getting initial location: $e");
+    }
+
+    _posSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(distanceFilter: 0),
+        ).listen((p) {
+          _userLocation = LatLng(p.latitude, p.longitude);
+
+          _initMarkers();
+        });
   }
+
   double _calculateBearing(LatLng from, LatLng to) {
     double lat1 = _toRadians(from.latitude);
     double lon1 = _toRadians(from.longitude);
@@ -257,15 +337,19 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     return (bearing * 180 / pi + 360) % 360; // convert to degrees
   }
 
-
-
-  Future<void> _moveCamera(LatLng target, {double zoom = 18, double bearing = 0}) async {
+  Future<void> _moveCamera(
+    LatLng target, {
+    double zoom = 18,
+    double bearing = 0,
+  }) async {
     final controller = await _ctrl.future;
 
     // Offset camera slightly ahead in direction of bearing
     final offsetDistance = 0.0003; // ≈ 30m
-    final offsetLat = target.latitude + offsetDistance * cos(bearing * pi / 180);
-    final offsetLng = target.longitude + offsetDistance * sin(bearing * pi / 180);
+    final offsetLat =
+        target.latitude + offsetDistance * cos(bearing * pi / 180);
+    final offsetLng =
+        target.longitude + offsetDistance * sin(bearing * pi / 180);
 
     controller.animateCamera(
       CameraUpdate.newCameraPosition(
@@ -279,52 +363,102 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     );
   }
 
-
   bool _isLoadingRoute = true;
-
-
   Future<void> _drawRoute(LatLng origin, LatLng destination) async {
+    setState(() {
+      _isLoadingRoute = true;
+      _estimatedDistance = null;
+      _estimatedTime = null;
+    });
+    try {
+      String googleApiKey = widget.apiKey;
+      final url =
+          "https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&key=$googleApiKey";
 
-    String googleApiKey = widget.apiKey ;// replace
-    final url =
-        "https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&key=$googleApiKey";
+      final response = await http.get(Uri.parse(url));
+      final data = jsonDecode(response.body);
 
-    final response = await http.get(Uri.parse(url));
-    final data = jsonDecode(response.body);
+      if (data["status"] != "OK") {
+        String errorMessage = "Directions Error: ${data["status"]}";
+        if (data["status"] == "ZERO_RESULTS") {
+          errorMessage = "No driving route found between these locations.";
+        } else if (data["status"] == "OVER_QUERY_LIMIT") {
+          errorMessage =
+              "API limit exceeded. Please check Google Cloud billing.";
+        } else if (data["status"] == "REQUEST_DENIED") {
+          errorMessage =
+              "API request denied. Check your API key and restriction.";
+        } else if (data["status"] == "INVALID_REQUEST") {
+          errorMessage = "Invalid request parameters detected.";
+        }
 
-    if (data["routes"].isEmpty) return;
+        debugPrint(errorMessage);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(errorMessage)));
+        }
+        return;
+      }
 
-    final route = data["routes"][0];
-    final polyline = route["overview_polyline"]["points"];
-    _routePoints = decodePolyline(polyline);
+      if (data["routes"].isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("No routes found between these locations."),
+            ),
+          );
+        }
+        return;
+      }
 
-    _polylines.clear();
-    _polylines.add(Polyline(
-      polylineId: const PolylineId("main"),
-      points: _routePoints,
-      width: 6,
-      color: Colors.blueAccent,
-    ));
+      final route = data["routes"][0];
+      final polyline = route["overview_polyline"]["points"];
+      _routePoints = decodePolyline(polyline);
 
-    _navigationSteps.clear();
-    _currentStepIndex = 0;
+      _polylines.clear();
+      _polylines.add(
+        Polyline(
+          polylineId: const PolylineId("main"),
+          points: _routePoints,
+          width: 6,
+          color: Colors.blueAccent,
+        ),
+      );
 
-    final legs = route["legs"] as List;
-    for (final leg in legs) {
-      for (final step in leg["steps"]) {
-        final htmlInstruction = step["html_instructions"];
-        final endLat = step["end_location"]["lat"];
-        final endLng = step["end_location"]["lng"];
-        _navigationSteps.add(StepInfo(
-          instruction: _stripHtmlTags(htmlInstruction),
-          endLocation: LatLng(endLat, endLng),
-        ));
+      _navigationSteps.clear();
+      _currentStepIndex = 0;
+
+      final legs = route["legs"] as List;
+      for (final leg in legs) {
+        for (final step in leg["steps"]) {
+          final htmlInstruction = step["html_instructions"];
+          final endLat = step["end_location"]["lat"];
+          final endLng = step["end_location"]["lng"];
+          _navigationSteps.add(
+            StepInfo(
+              instruction: _stripHtmlTags(htmlInstruction),
+              endLocation: LatLng(endLat, endLng),
+            ),
+          );
+        }
+      }
+
+      _calculateRideDetails();
+    } catch (e) {
+      debugPrint("Error drawing route: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to load route: $e")));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingRoute = false;
+        });
       }
     }
-
-    _calculateRideDetails();
-    _isLoadingRoute=false;
-    setState(() {});
   }
 
   List<LatLng> decodePolyline(String encoded) {
@@ -359,11 +493,10 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     return polyPoints;
   }
 
-
-
   String _stripHtmlTags(String htmlText) {
     return htmlText.replaceAll(RegExp(r"<[^>]*>"), ""); // remove HTML tags
   }
+
   void _calculateRideDetails() {
     double totalDistance = 0;
     for (int i = 1; i < _routePoints.length; i++) {
@@ -378,7 +511,8 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     const earthRadius = 6371;
     final dLat = _toRadians(to.latitude - from.latitude);
     final dLon = _toRadians(to.longitude - from.longitude);
-    final a = sin(dLat / 2) * sin(dLat / 2) +
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
         cos(_toRadians(from.latitude)) *
             cos(_toRadians(to.latitude)) *
             sin(dLon / 2) *
@@ -422,12 +556,10 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
   //   );
   // }
 
-
   double _liveBearing = 0.0;
 
   StreamSubscription<Position>? _positionStream;
   double? _lastBearing;
-
 
   double _getRemainingDistance(LatLng currentPos) {
     double total = 0;
@@ -446,7 +578,7 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
 
     // Add remaining distance on polyline
     for (int i = closestIndex; i < _routePoints.length - 1; i++) {
-      total += _calculateDistance(_routePoints[i], _routePoints[i+1]);
+      total += _calculateDistance(_routePoints[i], _routePoints[i + 1]);
     }
 
     return total; // in km
@@ -458,9 +590,6 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     int minutes = (timeHours * 60).round();
     return minutes.toString();
   }
-
-
-
 
   void _startRide() async {
     if (_routePoints.isEmpty || widget.destinationLocation == null) return;
@@ -495,76 +624,88 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
 
     // 🚀 Live location updates
     _positionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings)
-            .listen((Position position) async {
-          final currentPos = LatLng(position.latitude, position.longitude);
-          _userLocation = currentPos;
-          _drivers["driver_1"] = currentPos;
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (Position position) async {
+            final currentPos = LatLng(position.latitude, position.longitude);
+            _userLocation = currentPos;
 
-          _initMarkers();
+            // Start smooth animation
+            _oldPosition = _drivers["driver_1"];
+            _newPosition = currentPos;
+            _oldRotation = _liveBearing;
 
-          // 🧭 INSTANT ROTATION
-          double bearing = _liveBearing;
-
-          // 🎥 Move map + bike instantly
-          _moveCamera(
-            currentPos,
-            bearing: bearing,
-          );
-
-          // =============================
-          // 🔥 LIVE ETA + DISTANCE UPDATE
-          // =============================
-          double remainingKm = _getRemainingDistance(currentPos);
-          String remainingTime = _calculateETA(remainingKm);
-
-          setState(() {
-            _estimatedDistance = double.parse(remainingKm.toStringAsFixed(3));
-            _estimatedTime = remainingTime;
-          });
-
-          // 🚧 Check off-route (50m)
-          final nearestDistance = _getNearestPolylineDistance(currentPos);
-          if (nearestDistance > 50) {
-            _drawRoute(currentPos, widget.destinationLocation!);
-            return;
-          }
-
-          // 📍 Step navigation
-          if (_currentStepIndex < _navigationSteps.length) {
-            final stepEnd = _navigationSteps[_currentStepIndex].endLocation;
-            final distanceToStepEnd =
-                _calculateDistance(currentPos, stepEnd) * 1000; // meters
-
-            if (distanceToStepEnd < 30) {
-              setState(() {
-                _currentStepIndex++;
-              });
+            // Calculate bearing from previous point if movement is significant
+            if (_oldPosition != null) {
+              double bearing = _calculateBearing(_oldPosition!, _newPosition!);
+              if (_calculateDistance(_oldPosition!, _newPosition!) > 0.005) {
+                // more than 5 meters
+                _newRotation = bearing;
+              } else {
+                _newRotation = _liveBearing;
+              }
             }
-          }
 
-          // 🎯 Destination reached
-          final distanceToDestination =
-              _calculateDistance(currentPos, widget.destinationLocation!) * 1000;
+            _markerController.reset();
+            _markerController.forward();
 
-          //if (distanceToDestination < 500) {
-          widget.onReach(distanceToDestination);
-          // ScaffoldMessenger.of(context).showSnackBar(
-          //   const SnackBar(content: Text("🎯 Ride Finished")),
-          // );
-          // _positionStream?.cancel();
-          // }
-        });
+            // 🧭 INSTANT ROTATION
+            double bearing = _liveBearing;
+
+            // 🎥 Move map + bike instantly
+            _moveCamera(currentPos, bearing: bearing);
+
+            // =============================
+            // 🔥 LIVE ETA + DISTANCE UPDATE
+            // =============================
+            double remainingKm = _getRemainingDistance(currentPos);
+            String remainingTime = _calculateETA(remainingKm);
+
+            setState(() {
+              _estimatedDistance = double.parse(remainingKm.toStringAsFixed(3));
+              _estimatedTime = remainingTime;
+            });
+
+            // 🚧 Check off-route (50m)
+            final nearestDistance = _getNearestPolylineDistance(currentPos);
+            if (nearestDistance > 50) {
+              _drawRoute(currentPos, widget.destinationLocation!);
+              return;
+            }
+
+            // 📍 Step navigation
+            if (_currentStepIndex < _navigationSteps.length) {
+              final stepEnd = _navigationSteps[_currentStepIndex].endLocation;
+              final distanceToStepEnd =
+                  _calculateDistance(currentPos, stepEnd) * 1000; // meters
+
+              if (distanceToStepEnd < 30) {
+                setState(() {
+                  _currentStepIndex++;
+                });
+              }
+            }
+
+            // 🎯 Destination reached
+            final distanceToDestination =
+                _calculateDistance(currentPos, widget.destinationLocation!) *
+                1000;
+
+            //if (distanceToDestination < 500) {
+            widget.onReach(distanceToDestination);
+            // ScaffoldMessenger.of(context).showSnackBar(
+            //   const SnackBar(content: Text("🎯 Ride Finished")),
+            // );
+            // _positionStream?.cancel();
+            // }
+          },
+        );
   }
-
 
   double _smoothBearing(double oldBearing, double newBearing) {
     double diff = newBearing - oldBearing;
     if (diff.abs() > 180) diff -= 360 * diff.sign;
     return (oldBearing + diff * 0.25) % 360; // 0.25 = smoothness factor
   }
-
-
 
   double _getNearestPolylineDistance(LatLng currentPos) {
     double minDistance = double.infinity;
@@ -579,211 +720,235 @@ class _MapScreenRouteState extends State<MapScreenRoute> with TickerProviderStat
     return minDistance;
   }
 
-
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
-          body:
-          _isLoadingRoute?const Center(child: CircularProgressIndicator(),):
-          Stack(
-            children: [
-              // MAP
-              GoogleMap(
-                mapType: MapType.normal,
+        body: _isLoadingRoute
+            ? const Center(child: CircularProgressIndicator())
+            : Stack(
+                children: [
+                  // MAP
+                  GoogleMap(
+                    mapType: MapType.normal,
 
-                initialCameraPosition: _initial,
-                compassEnabled: false,
-                myLocationButtonEnabled: false,
-                zoomControlsEnabled: false,
-                markers: _markers,
-                polylines: _polylines,
-                onMapCreated: (controller) {
-
-                  _ctrl.complete(controller);},
-                // onTap: _handleMapTap,
-              ),
-
-
-              // ---------- TOP INSTRUCTION (Slide Down) ----------
-              Positioned(
-                bottom: 100,
-                left: 0,
-                right: 0,
-                child: SlideTransition(
-                  position: _topSlide,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.75),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        transitionBuilder: (child, anim) =>
-                            FadeTransition(opacity: anim, child: child),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                _currentStepIndex < _navigationSteps.length
-                                    ? _navigationSteps[_currentStepIndex].instruction
-                                    : "Continue straight",
-                                key: ValueKey(_currentStepIndex),
-                                softWrap: true,
-                                maxLines: 3, // 👈 adjust as needed
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(
-                              _getTurnIcon(_navigationSteps, _currentStepIndex),
-                              size: 32,
-                              color: Colors.white,
-                            ),
-                          ],
-                        ),
-
-                      ),
-                    ),
+                    initialCameraPosition: _initial,
+                    compassEnabled: false,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                    markers: _markers,
+                    polylines: _polylines,
+                    onMapCreated: (controller) {
+                      _ctrl.complete(controller);
+                    },
+                    // onTap: _handleMapTap,
                   ),
-                ),
-              ),
 
-              // ---------- ETA CARD (Fade on update) ----------
-              Positioned(
-                top: 10,
-                left: 20,
-                child: FadeTransition(
-                  opacity: _etaFade,
-                  child: ScaleTransition(
-                    scale: _etaController,
-                    child: Container(
-                      width: 240,  // ← control bubble width (increase if needed)
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
-                            blurRadius: 10,
-                          )
-                        ],
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.timer_outlined, size: 22),
-                          const SizedBox(width: 10),
-
-                          /// EXPANDED so text wraps to multiple lines
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                  // ---------- TOP INSTRUCTION (Slide Down) ----------
+                  Positioned(
+                    bottom: 100,
+                    left: 0,
+                    right: 0,
+                    child: SlideTransition(
+                      position: _topSlide,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 300),
+                            transitionBuilder: (child, anim) =>
+                                FadeTransition(opacity: anim, child: child),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-
-                                /// ETA - First Line
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 300),
-                                  transitionBuilder: (child, anim) =>
-                                      FadeTransition(opacity: anim, child: child),
+                                Flexible(
                                   child: Text(
-                                    "${_estimatedTime} min",
-                                    key: ValueKey("time_$_estimatedTime"),
-                                    maxLines: null,
+                                    _currentStepIndex < _navigationSteps.length
+                                        ? _navigationSteps[_currentStepIndex]
+                                              .instruction
+                                        : "Continue straight",
+                                    key: ValueKey(_currentStepIndex),
                                     softWrap: true,
+                                    maxLines: 3, // 👈 adjust as needed
+                                    overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                      fontSize: 16,
+                                      color: Colors.white,
+                                      fontSize: 17,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
-
-                                const SizedBox(height: 4),
-
-                                Row(
-                                  children: [
-                                    const Icon(Icons.route_outlined, size: 20),
-                                    const SizedBox(width: 6),
-
-                                    /// DISTANCE - Second Line
-                                    Expanded(
-                                      child: AnimatedSwitcher(
-                                        duration: const Duration(milliseconds: 300),
-                                        transitionBuilder: (child, anim) =>
-                                            FadeTransition(opacity: anim, child: child),
-                                        child: Text(
-                                          "${_estimatedDistance} km",
-                                          key: ValueKey("distance_$_estimatedDistance"),
-                                          maxLines: null,
-                                          softWrap: true,
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                const SizedBox(width: 8),
+                                Icon(
+                                  _getTurnIcon(
+                                    _navigationSteps,
+                                    _currentStepIndex,
+                                  ),
+                                  size: 32,
+                                  color: Colors.white,
                                 ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-
-              // ---------- BOTTOM TURN PILL (Slide Up + Fade) ----------
-
-              Positioned(
-                bottom: 20,
-                left: 20,
-                right: 20,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() => rideStarted = true);
-                    _startRide();   // <-- your function
-                  },
-                  child: widget.rideButton ?? Container(
-                    padding:  EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color:widget.buttonColor?? Colors.black,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Center(
-                      child: Text(
-                        startRide,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                   ),
-                ),
+
+                  // ---------- ETA CARD (Fade on update) ----------
+                  if (_estimatedDistance != null && _estimatedTime != null)
+                    Positioned(
+                      top: 10,
+                      left: 20,
+                      child: FadeTransition(
+                        opacity: _etaFade,
+                        child: ScaleTransition(
+                          scale: _etaController,
+                          child: Container(
+                            width:
+                                240, // ← control bubble width (increase if needed)
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.15),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.timer_outlined, size: 22),
+                                const SizedBox(width: 10),
+
+                                /// EXPANDED so text wraps to multiple lines
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      /// ETA - First Line
+                                      AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        transitionBuilder: (child, anim) =>
+                                            FadeTransition(
+                                              opacity: anim,
+                                              child: child,
+                                            ),
+                                        child: Text(
+                                          "${_estimatedTime} min",
+                                          key: ValueKey("time_$_estimatedTime"),
+                                          maxLines: null,
+                                          softWrap: true,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 4),
+
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.route_outlined,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 6),
+
+                                          /// DISTANCE - Second Line
+                                          Expanded(
+                                            child: AnimatedSwitcher(
+                                              duration: const Duration(
+                                                milliseconds: 300,
+                                              ),
+                                              transitionBuilder:
+                                                  (child, anim) =>
+                                                      FadeTransition(
+                                                        opacity: anim,
+                                                        child: child,
+                                                      ),
+                                              child: Text(
+                                                "${_estimatedDistance} km",
+                                                key: ValueKey(
+                                                  "distance_$_estimatedDistance",
+                                                ),
+                                                maxLines: null,
+                                                softWrap: true,
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // ---------- BOTTOM TURN PILL (Slide Up + Fade) ----------
+                  Positioned(
+                    bottom: 20,
+                    left: 20,
+                    right: 20,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() => rideStarted = true);
+                        _startRide(); // <-- your function
+                      },
+                      child:
+                          widget.rideButton ??
+                          Container(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: widget.buttonColor ?? Colors.black,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Center(
+                              child: Text(
+                                startRide,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                    ),
+                  ),
+                ],
               ),
-
-            ],
-          )
-
       ),
     );
   }
 }
+
 bool rideStarted = false;
 
 IconData _getTurnIcon(List steps, int index) {
@@ -797,7 +962,6 @@ IconData _getTurnIcon(List steps, int index) {
 
   return Icons.straight;
 }
-
 
 // Helper class to store step info
 class StepInfo {
