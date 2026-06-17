@@ -10,7 +10,10 @@ A Flutter package that provides **real-time navigation with Google Maps**, inclu
 - 📍 Real-time **location tracking** with `geolocator`.
 - 🎯 **Custom pickup, destination, and driver markers** with icons.
 - 📏 Distance & ETA calculation.
-- 🔄 Automatic **re-routing** if the driver goes off-route.
+- 🔄 Automatic **re-routing** if the driver goes off-route (with a configurable threshold).
+- 🧲 **Snap-to-road** — the driver marker rides on the route line instead of floating off it.
+- ✂️ **Consuming route polyline** — the traveled portion dims while the remaining route stays highlighted, so the line shrinks as you progress.
+- 🏍️ **Smooth marker movement** — gliding motion matched to the GPS update rate.
 - 🧭 Step-by-step navigation instructions (like Google Maps).
 - 🎨 Fully customizable UI & markers.
 
@@ -143,6 +146,7 @@ MapScreenRoute(
 | `bikeIconSize` | `Size?` | ❌ No | Custom size for the bike/driver icon. Default is `120x100`. |
 | `dropIconSize` | `Size?` | ❌ No | Custom size for the destination icon. Default is `40x40`. |
 | `pickupIconSize` | `Size?` | ❌ No | Custom size for the pickup icon. Default is `40x40`. |
+| `offRouteThreshold` | `double` | ❌ No | Distance (in meters) the driver may stray from the route before an automatic re-route is triggered. Default is `50`. |
 
 ```yaml 
 flutter:
@@ -177,7 +181,11 @@ Navigation Features
 
 Start Ride: Begins turn-by-turn navigation.
 
-Auto Re-route: If you deviate from the polyline, it re-fetches route.
+Auto Re-route: If you stray beyond `offRouteThreshold` (default 50 m) for two consecutive readings, it re-fetches the route — confirmation avoids false triggers from GPS noise.
+
+Snap-to-road: The driver marker is projected onto the nearest route segment so it always rides on the road line.
+
+Route progress: The traveled part of the polyline dims (grey) while the remaining part stays highlighted (blue), shrinking the route as you advance.
 
 Next Step Instructions: Shows "Next: Turn left on XYZ road".
 
