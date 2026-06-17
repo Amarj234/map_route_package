@@ -25,6 +25,7 @@ class MapScreenRoute extends StatefulWidget {
   final Size? pickupIconSize;
   final Function(double distance) onReach;
   final Widget? rideButton;
+  final double offRouteThreshold;
   const MapScreenRoute({
     super.key,
     required this.bikeIcon,
@@ -40,6 +41,7 @@ class MapScreenRoute extends StatefulWidget {
     this.bikeIconSize,
     this.dropIconSize,
     this.pickupIconSize,
+    this.offRouteThreshold = 50,
   });
 
   @override
@@ -90,6 +92,10 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   // Navigation steps
   List<StepInfo> _navigationSteps = [];
   int _currentStepIndex = 0;
+  bool _isFetchingRoute = false;
+  DateTime? _lastPositionTime;
+  int _offRouteCount = 0;
+  StreamSubscription? _compassSub;
 
   @override
   void initState() {
@@ -165,26 +171,28 @@ class _MapScreenRouteState extends State<MapScreenRoute>
     _etaFade = Tween<double>(begin: 0, end: 1).animate(_etaController);
 
     _markerController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 1))
-          ..addListener(() {
-            setState(() {
-              if (_oldPosition != null && _newPosition != null) {
-                final double t = _markerController.value;
-                final double lat =
-                    _oldPosition!.latitude +
-                    (_newPosition!.latitude - _oldPosition!.latitude) * t;
-                final double lng =
-                    _oldPosition!.longitude +
-                    (_newPosition!.longitude - _oldPosition!.longitude) * t;
-                _drivers["driver_1"] = LatLng(lat, lng);
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 1000),
+        )..addListener(() {
+          if (!mounted || _oldPosition == null || _newPosition == null) return;
 
-                double diff = _newRotation - _oldRotation;
-                if (diff.abs() > 180) diff -= 360 * diff.sign;
-                _liveBearing = (_oldRotation + diff * t) % 360;
-              }
-              _initMarkers();
-            });
-          });
+          final double t = _markerController.value;
+          final double lat =
+              _oldPosition!.latitude +
+              (_newPosition!.latitude - _oldPosition!.latitude) * t;
+          final double lng =
+              _oldPosition!.longitude +
+              (_newPosition!.longitude - _oldPosition!.longitude) * t;
+          _drivers["driver_1"] = LatLng(lat, lng);
+
+          double diff = _newRotation - _oldRotation;
+          if (diff.abs() > 180) diff -= 360 * diff.sign;
+          _liveBearing = (_oldRotation + diff * t) % 360;
+
+          // Single rebuild per frame (no nested setState) keeps motion smooth.
+          setState(_buildMarkers);
+        });
 
     // Trigger animations on screen open
     _topInstructionController.forward();
@@ -197,6 +205,7 @@ class _MapScreenRouteState extends State<MapScreenRoute>
     _posSub?.cancel();
     _rideTimer?.cancel();
     _positionStream?.cancel();
+    _compassSub?.cancel();
     KeepScreenOn.turnOff();
     _topInstructionController.dispose();
     _bottomPillController.dispose();
@@ -243,6 +252,11 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   }
 
   void _initMarkers() {
+    if (!mounted) return;
+    setState(_buildMarkers);
+  }
+
+  void _buildMarkers() {
     _markers.clear();
 
     if (_userLocation != null && !rideStarted) {
@@ -295,8 +309,6 @@ class _MapScreenRouteState extends State<MapScreenRoute>
         ),
       );
     });
-
-    setState(() {});
   }
 
   LatLng? pickupLocation;
@@ -381,12 +393,21 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   }
 
   bool _isLoadingRoute = true;
-  Future<void> _drawRoute(LatLng origin, LatLng destination) async {
-    setState(() {
-      _isLoadingRoute = true;
-      _estimatedDistance = null;
-      _estimatedTime = null;
-    });
+  Future<void> _drawRoute(
+    LatLng origin,
+    LatLng destination, {
+    bool showLoader = true,
+  }) async {
+    if (_isFetchingRoute) return;
+    _isFetchingRoute = true;
+
+    if (showLoader) {
+      setState(() {
+        _isLoadingRoute = true;
+        _estimatedDistance = null;
+        _estimatedTime = null;
+      });
+    }
     try {
       String googleApiKey = widget.apiKey;
       final url =
@@ -473,6 +494,7 @@ class _MapScreenRouteState extends State<MapScreenRoute>
       if (mounted) {
         setState(() {
           _isLoadingRoute = false;
+          _isFetchingRoute = false;
         });
       }
     }
@@ -610,11 +632,18 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   void _startRide() async {
     if (_routePoints.isEmpty || widget.destinationLocation == null) return;
 
+    // Stop the pre-ride location stream so it doesn't fight the ride stream
+    // with extra marker rebuilds (a major source of animation jank).
+    _posSub?.cancel();
     _positionStream?.cancel();
+    _compassSub?.cancel();
     _currentStepIndex = 0;
+    _offRouteCount = 0;
+    _lastPositionTime = null;
 
-    // 🔥 Compass listener — instant rotation
-    FlutterCompass.events!.listen((event) {
+    // 🔥 Compass listener — instant rotation. Held in a cancellable
+    // subscription so repeated "Re Route" taps don't stack listeners.
+    _compassSub = FlutterCompass.events!.listen((event) {
       if (event.heading != null) {
         _liveBearing = event.heading!;
       }
@@ -645,9 +674,17 @@ class _MapScreenRouteState extends State<MapScreenRoute>
             final currentPos = LatLng(position.latitude, position.longitude);
             _userLocation = currentPos;
 
+            // 🧲 Snap the rider onto the route so the marker rides on the road,
+            // and consume the traveled part of the polyline (Rapido-style).
+            final snap = _snapToRoute(currentPos);
+            final bool onRoute =
+                snap != null && snap.distanceMeters <= widget.offRouteThreshold;
+            final LatLng markerTarget = onRoute ? snap.point : currentPos;
+            if (onRoute) _buildProgressPolylines(snap);
+
             // Start smooth animation
             _oldPosition = _drivers["driver_1"];
-            _newPosition = currentPos;
+            _newPosition = markerTarget;
             _oldRotation = _liveBearing;
 
             // Calculate bearing from previous point if movement is significant
@@ -661,6 +698,18 @@ class _MapScreenRouteState extends State<MapScreenRoute>
               }
             }
 
+            // Match the tween duration to the real gap between GPS updates so
+            // the marker glides at a constant speed instead of darting then
+            // freezing (or being reset mid-flight).
+            final now = DateTime.now();
+            final int dtMs = _lastPositionTime == null
+                ? 1000
+                : now.difference(_lastPositionTime!).inMilliseconds;
+            _lastPositionTime = now;
+            _markerController.duration = Duration(
+              milliseconds: dtMs.clamp(400, 2000).toInt(),
+            );
+
             _markerController.reset();
             _markerController.forward();
 
@@ -668,12 +717,12 @@ class _MapScreenRouteState extends State<MapScreenRoute>
             double bearing = _liveBearing;
 
             // 🎥 Move map + bike instantly
-            _moveCamera(currentPos, bearing: bearing);
+            _moveCamera(markerTarget, bearing: bearing);
 
             // =============================
             // 🔥 LIVE ETA + DISTANCE UPDATE
             // =============================
-            double remainingKm = _getRemainingDistance(currentPos);
+            double remainingKm = _getRemainingDistance(markerTarget);
             String remainingTime = _calculateETA(remainingKm);
 
             setState(() {
@@ -681,11 +730,25 @@ class _MapScreenRouteState extends State<MapScreenRoute>
               _estimatedTime = remainingTime;
             });
 
-            // 🚧 Check off-route (50m)
-            final nearestDistance = _getNearestPolylineDistance(currentPos);
-            if (nearestDistance > 50) {
-              _drawRoute(currentPos, widget.destinationLocation!);
-              return;
+            // 🚧 Check off-route. Require two consecutive readings beyond the
+            // threshold so a single noisy GPS spike doesn't trigger a reroute,
+            // while a genuine wrong turn reliably does.
+            if (!_isFetchingRoute) {
+              final nearestDistance = snap?.distanceMeters ?? double.infinity;
+              if (nearestDistance > widget.offRouteThreshold) {
+                _offRouteCount++;
+                if (_offRouteCount >= 2) {
+                  _offRouteCount = 0;
+                  _drawRoute(
+                    currentPos,
+                    widget.destinationLocation!,
+                    showLoader: false,
+                  );
+                  return;
+                }
+              } else {
+                _offRouteCount = 0;
+              }
             }
 
             // 📍 Step navigation
@@ -718,17 +781,79 @@ class _MapScreenRouteState extends State<MapScreenRoute>
   }
 
 
-  double _getNearestPolylineDistance(LatLng currentPos) {
-    double minDistance = double.infinity;
+  /// Nearest point on the segment [a]-[b] to [p] (clamped to the segment).
+  /// For city-scale distances we can treat lat/lng as planar coordinates.
+  LatLng _projectOnSegment(LatLng p, LatLng a, LatLng b) {
+    final double x = p.longitude, y = p.latitude;
+    final double x1 = a.longitude, y1 = a.latitude;
+    final double x2 = b.longitude, y2 = b.latitude;
+    final double dx = x2 - x1, dy = y2 - y1;
 
-    for (var point in _routePoints) {
-      final distance = _calculateDistance(currentPos, point) * 1000; // meters
-      if (distance < minDistance) {
-        minDistance = distance;
+    if (dx == 0 && dy == 0) return a;
+
+    double t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+    t = t.clamp(0.0, 1.0);
+    return LatLng(y1 + t * dy, x1 + t * dx);
+  }
+
+  /// Snaps [pos] onto the closest point of the route polyline so the marker
+  /// rides on the road instead of floating off it (Rapido-style).
+  _RouteSnap? _snapToRoute(LatLng pos) {
+    if (_routePoints.length < 2) return null;
+
+    double bestDistance = double.infinity;
+    LatLng bestPoint = _routePoints.first;
+    int bestIndex = 0;
+
+    for (int i = 0; i < _routePoints.length - 1; i++) {
+      final projection = _projectOnSegment(
+        pos,
+        _routePoints[i],
+        _routePoints[i + 1],
+      );
+      final distance = _calculateDistance(pos, projection) * 1000;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPoint = projection;
+        bestIndex = i;
       }
     }
 
-    return minDistance;
+    return _RouteSnap(bestPoint, bestIndex, bestDistance);
+  }
+
+  /// Splits the route into a dimmed "traveled" line and a highlighted
+  /// "remaining" line at the current [snap] point, so the route visibly
+  /// shrinks ahead of the rider.
+  void _buildProgressPolylines(_RouteSnap snap) {
+    final traveled = <LatLng>[
+      for (int i = 0; i <= snap.segmentIndex; i++) _routePoints[i],
+      snap.point,
+    ];
+    final remaining = <LatLng>[
+      snap.point,
+      for (int i = snap.segmentIndex + 1; i < _routePoints.length; i++)
+        _routePoints[i],
+    ];
+
+    _polylines
+      ..clear()
+      ..add(
+        Polyline(
+          polylineId: const PolylineId("traveled"),
+          points: traveled,
+          width: 6,
+          color: Colors.grey.shade400,
+        ),
+      )
+      ..add(
+        Polyline(
+          polylineId: const PolylineId("remaining"),
+          points: remaining,
+          width: 6,
+          color: Colors.blueAccent,
+        ),
+      );
   }
 
   @override
@@ -979,4 +1104,12 @@ class StepInfo {
   final String instruction;
   final LatLng endLocation;
   StepInfo({required this.instruction, required this.endLocation});
+}
+
+// Result of snapping a raw GPS point onto the route polyline.
+class _RouteSnap {
+  final LatLng point; // snapped position on the route
+  final int segmentIndex; // route segment [segmentIndex, segmentIndex + 1]
+  final double distanceMeters; // raw GPS distance from the route
+  _RouteSnap(this.point, this.segmentIndex, this.distanceMeters);
 }

@@ -26,7 +26,7 @@ class _MyAppState extends State<MyApp> {
         pickupIcon: "assets/pickup_icon.png",
         destinationLocation: LatLng(25.4681589, 81.8648168),
         apiKey:
-            'Past Your Google Map Key Here', // make soure you have enable all required feature
+            'Paste Your Google Map Key Here', // make sure you have enabled all required APIs
         onReach: (double distance) {},
       ),
     );
